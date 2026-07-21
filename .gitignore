@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+data/
+*.log
+*.pem
+*.key
+*.p12
+*.mobileprovision
+.DS_Store
+.idea/
+.vscode/
+coverage/

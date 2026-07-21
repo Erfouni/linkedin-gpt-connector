@@ -1,0 +1,28 @@
+{
+  "name": "linkedin-gpt-connector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-only macOS bridge between ChatGPT/Helios and LinkedIn's official APIs.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "dev": "tsx watch src/local-server.ts",
+    "start": "node --env-file=.env dist/local-server.js",
+    "test": "npm run check && npm run build",
+    "scan:secrets": "bash scripts/scan-secrets.sh"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}
