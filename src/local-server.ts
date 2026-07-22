@@ -1,8 +1,15 @@
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import {
+  isAllowedLinkedInPath,
+  isLoopbackAddress,
+  isWriteConfirmed,
+  normalizePostCount,
+} from "./policy.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -145,7 +152,7 @@ async function exchangeAuthorizationCode(code: string, verifier?: string) {
 }
 
 async function linkedin(pathname: string, init: RequestInit = {}) {
-  if (!pathname.startsWith("/v2/") && !pathname.startsWith("/rest/")) {
+  if (!isAllowedLinkedInPath(pathname)) {
     throw new Error("Only LinkedIn /v2 and /rest API paths are allowed");
   }
   const accessToken = await loadAccessToken();
@@ -186,7 +193,7 @@ async function personUrn() {
 
 function localOnly(req: Request, res: Response, next: NextFunction) {
   const remote = req.socket.remoteAddress ?? "";
-  if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) {
+  if (!isLoopbackAddress(remote)) {
     res.status(403).json({ error: "Local access only" });
     return;
   }
@@ -218,7 +225,7 @@ function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   };
 }
 
-const app = express();
+export const app = express();
 app.disable("x-powered-by");
 app.use((_req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
@@ -279,7 +286,7 @@ app.get("/profile", asyncRoute(async (_req, res) => {
 }));
 
 app.get("/posts", asyncRoute(async (req, res) => {
-  const count = Math.min(100, Math.max(1, Number(req.query.count ?? 20)));
+  const count = normalizePostCount(req.query.count);
   const author = await personUrn();
   const query = new URLSearchParams({ q: "author", author, count: String(count) });
   res.json((await linkedin(`/rest/posts?${query}`)).data);
@@ -330,11 +337,11 @@ app.get("/analytics/profile", asyncRoute(async (req, res) => {
 app.post("/linkedin/request", asyncRoute(async (req, res) => {
   const input = z.object({
     method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
-    path: z.string().refine((value) => value.startsWith("/v2/") || value.startsWith("/rest/"), "Only /v2 and /rest paths are allowed"),
+    path: z.string().refine(isAllowedLinkedInPath, "Only normalized /v2 and /rest paths are allowed"),
     body: z.unknown().optional(),
     confirmed: z.boolean().optional(),
   }).parse(req.body);
-  if (input.method !== "GET" && input.confirmed !== true) {
+  if (!isWriteConfirmed(input.method, input.confirmed)) {
     res.status(400).json({ error: "confirmed=true is required for write requests" });
     return;
   }
@@ -357,6 +364,12 @@ app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-app.listen(config.port, config.host, () => {
-  console.log(`LinkedIn GPT Local Agent listening on http://${config.host}:${config.port}`);
-});
+export function startServer() {
+  return app.listen(config.port, config.host, () => {
+    console.log(`LinkedIn GPT Local Agent listening on http://${config.host}:${config.port}`);
+  });
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  startServer();
+}
