@@ -41,7 +41,7 @@ All non-GET operations require `confirmed: true`.
 
 ## Quick start
 
-1. Clone this private repository on the always-on Mac.
+1. Clone this repository on the always-on Mac.
 2. Double-click `Install.command` or run:
 
    ```bash
@@ -90,3 +90,25 @@ When LinkedIn returns HTTP 403, obtain the required Product/scope through the Li
 - CI runs TypeScript checks and a repository secret scan.
 
 Read [SECURITY.md](SECURITY.md) before changing deployment or exposing the service.
+
+## Verification
+
+Run the same checks used by CI before proposing a change:
+
+```bash
+npm ci
+npm run scan:secrets
+npm test
+npm run audit:high
+```
+
+The test suite exercises the loopback boundary, normalized LinkedIn API path
+allowlist, write-confirmation rule, post-count normalization, and real local HTTP
+responses without using live credentials or calling LinkedIn.
+
+## Licensing and provenance
+
+This repository does not currently include an open-source license. Public
+visibility is not permission to reuse or redistribute the code. See
+[NOTICE.md](NOTICE.md) for the factual Git-history boundary; the notice does not
+grant rights or claim a copyright transfer.
