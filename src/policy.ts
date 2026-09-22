@@ -5,6 +5,15 @@ export function isLoopbackAddress(address: string): boolean {
   return ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(address);
 }
 
+const LOOPBACK_HOST = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::(\d{1,5}))?$/i;
+
+// A DNS-rebinding page connects from a loopback socket but keeps its own name in
+// the Host header, so the socket address alone cannot tell it from a local client.
+export function isLoopbackHost(host: string | undefined): boolean {
+  const match = LOOPBACK_HOST.exec(host ?? "");
+  return match !== null && (match[1] === undefined || Number(match[1]) <= 65535);
+}
+
 export function isAllowedLinkedInPath(value: string): boolean {
   if (!LINKEDIN_API_PREFIXES.some((prefix) => value.startsWith(prefix))) return false;
   if (/[\u0000-\u001f\u007f]/.test(value)) return false;

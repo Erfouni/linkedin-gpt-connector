@@ -18,6 +18,8 @@ If a secret is ever exposed, rotate it at the provider. Removing it from the lat
 
 The service must bind only to `127.0.0.1` or `::1`. Do not expose port 3190 directly to a LAN or the internet. If remote access is later required, add an authenticated gateway, TLS, rate limiting, and an independent security review.
 
+Binding to loopback does not stop a web page open in a local browser from reaching the port: with DNS rebinding, the page re-resolves its own domain to 127.0.0.1 and its requests then arrive from a loopback socket. The service therefore also refuses every request, except `GET /health`, whose `Host` header is not `127.0.0.1`, `localhost` or `[::1]` (any port). Address the agent by one of those names, and keep the check in front of any route you add.
+
 ## Public writes
 
 The API requires `confirmed: true` for every non-GET advanced request and for publishing posts or comments. A client should set it only after the user explicitly approves the exact content and target.

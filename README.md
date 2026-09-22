@@ -85,6 +85,9 @@ When LinkedIn returns HTTP 403, obtain the required Product/scope through the Li
 - Access token and Client Secret stay in macOS Keychain.
 - `.env`, logs, build output, private keys, and local data are ignored.
 - The server rejects non-loopback traffic.
+- The server also rejects requests whose `Host` header is not `127.0.0.1`,
+  `localhost` or `[::1]`, so a web page that rebinds its own domain to
+  127.0.0.1 (DNS rebinding) cannot read from it or publish through it.
 - OAuth state expires after ten minutes.
 - Public writes require explicit confirmation.
 - CI runs TypeScript checks and a repository secret scan.
@@ -102,9 +105,10 @@ npm test
 npm run audit:high
 ```
 
-The test suite exercises the loopback boundary, normalized LinkedIn API path
-allowlist, write-confirmation rule, post-count normalization, and real local HTTP
-responses without using live credentials or calling LinkedIn.
+The test suite exercises the loopback socket and `Host` header boundaries,
+normalized LinkedIn API path allowlist, write-confirmation rule, post-count
+normalization, and real local HTTP responses without using live credentials or
+calling LinkedIn.
 
 ## Licensing and provenance
 
