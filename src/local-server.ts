@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   isAllowedLinkedInPath,
   isLoopbackAddress,
+  isLoopbackHost,
   isWriteConfirmed,
   normalizePostCount,
 } from "./policy.js";
@@ -195,6 +196,11 @@ function localOnly(req: Request, res: Response, next: NextFunction) {
   const remote = req.socket.remoteAddress ?? "";
   if (!isLoopbackAddress(remote)) {
     res.status(403).json({ error: "Local access only" });
+    return;
+  }
+
+  if (!isLoopbackHost(req.headers.host)) {
+    res.status(403).json({ error: "Host must be 127.0.0.1, localhost or [::1]" });
     return;
   }
 
