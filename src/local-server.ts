@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { requestAccessToken } from "./oauth.js";
 import {
   isAllowedLinkedInPath,
   isLoopbackAddress,
@@ -110,46 +111,15 @@ function oauthAuthorizationUrl(): string {
 
 async function exchangeAuthorizationCode(code: string, verifier?: string) {
   const clientSecret = await loadKeychainValue(config.clientSecretKeychainAccount);
-  const baseArgs = [
-    "-sS",
-    "-X", "POST",
-    "https://www.linkedin.com/oauth/v2/accessToken",
-    "-H", "Content-Type: application/x-www-form-urlencoded",
-    "--data-urlencode", "grant_type=authorization_code",
-    "--data-urlencode", `code=${code}`,
-    "--data-urlencode", `redirect_uri=${config.oauthRedirectUri}`,
-  ];
-  if (verifier) baseArgs.push("--data-urlencode", `code_verifier=${verifier}`);
-
-  async function attempt(authMode: "form" | "basic") {
-    const args = [...baseArgs];
-    if (authMode === "basic" && clientSecret) {
-      args.push("--user", `${config.clientId}:${clientSecret}`);
-      args.push("--data-urlencode", `client_id=${config.clientId}`);
-      args.push("--data-urlencode", `client_secret=${clientSecret}`);
-    } else {
-      args.push("--data-urlencode", `client_id=${config.clientId}`);
-      if (clientSecret) args.push("--data-urlencode", `client_secret=${clientSecret}`);
-    }
-    args.push("-w", "\\n%{http_code}");
-    const { stdout } = await execFileAsync("/usr/bin/curl", args, { maxBuffer: 1024 * 1024 });
-    const splitAt = stdout.lastIndexOf("\n");
-    const raw = splitAt >= 0 ? stdout.slice(0, splitAt) : stdout;
-    const status = splitAt >= 0 ? Number(stdout.slice(splitAt + 1).trim()) : 0;
-    let data: Record<string, unknown> = {};
-    try { data = raw ? JSON.parse(raw) as Record<string, unknown> : {}; } catch { /* handled below */ }
-    return { status, raw, data };
-  }
-
-  let result = await attempt("form");
-  if (result.status === 401 && result.raw.includes("invalid_client") && clientSecret) {
-    result = await attempt("basic");
-  }
-  if (result.status < 200 || result.status >= 300 || typeof result.data.access_token !== "string") {
-    throw new Error(`LinkedIn OAuth token exchange failed (${result.status}): ${result.raw.slice(0, 500)}`);
-  }
-  await saveKeychainValue(config.keychainAccount, result.data.access_token);
-  return { expiresIn: typeof result.data.expires_in === "number" ? result.data.expires_in : null };
+  const { accessToken, expiresIn } = await requestAccessToken({
+    code,
+    verifier,
+    clientId: config.clientId,
+    clientSecret,
+    redirectUri: config.oauthRedirectUri,
+  });
+  await saveKeychainValue(config.keychainAccount, accessToken);
+  return { expiresIn };
 }
 
 async function linkedin(pathname: string, init: RequestInit = {}) {
