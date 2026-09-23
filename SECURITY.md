@@ -12,6 +12,8 @@ Never commit or paste any of the following into source code, chat, issues, pull 
 
 The installer stores the LinkedIn Client Secret and access token in macOS Keychain under the `linkedin-gpt-connector` service. The Client ID is not a secret and is stored in the local ignored `.env`.
 
+A process's arguments are readable by every other user on the machine for as long as it runs, so a secret passed as one is not private. The OAuth token exchange therefore runs in-process over HTTPS: the Client Secret travels in the request body or an `Authorization: Basic` header, and the authorization code in the request body. Keep any new provider call in-process for the same reason instead of shelling out to `curl`.
+
 If a secret is ever exposed, rotate it at the provider. Removing it from the latest commit is not sufficient.
 
 ## Network boundary
