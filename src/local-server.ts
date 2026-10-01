@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { writeKeychainValue } from "./keychain.js";
 import { requestAccessToken } from "./oauth.js";
 import {
   isAllowedLinkedInPath,
@@ -70,13 +71,7 @@ async function saveKeychainValue(account: string, value: string): Promise<void> 
   if (process.platform !== "darwin") {
     throw new Error("OAuth token storage requires macOS Keychain");
   }
-  await execFileAsync("/usr/bin/security", [
-    "add-generic-password",
-    "-U",
-    "-s", config.keychainService,
-    "-a", account,
-    "-w", value,
-  ]);
+  await writeKeychainValue(config.keychainService, account, value);
 }
 
 type PendingOAuth = { verifier?: string; createdAt: number };

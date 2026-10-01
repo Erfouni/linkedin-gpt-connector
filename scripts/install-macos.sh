@@ -34,10 +34,6 @@ fi
 
 read -r -s -p "LinkedIn Client Secret (stored only in Keychain; leave blank for PKCE-only apps): " client_secret
 echo
-if [[ -n "$client_secret" ]]; then
-  /usr/bin/security add-generic-password -U     -s "$KEYCHAIN_SERVICE"     -a "$SECRET_ACCOUNT"     -w "$client_secret" >/dev/null
-fi
-unset client_secret
 
 umask 077
 {
@@ -57,6 +53,14 @@ unset client_id
 
 npm ci
 npm run build
+
+# The secret goes to Keychain on stdin. As a `security -w` argument it would be
+# visible to every local user through `ps`; printf is a builtin, so no process
+# gets it as an argument here.
+if [[ -n "$client_secret" ]]; then
+  printf '%s' "$client_secret" | node dist/keychain.js "$KEYCHAIN_SERVICE" "$SECRET_ACCOUNT"
+fi
+unset client_secret
 
 mkdir -p "$HOME/Library/LaunchAgents" "$LOG_DIR"
 node_path="$(command -v node)"
