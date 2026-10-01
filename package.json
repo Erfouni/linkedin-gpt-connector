@@ -12,7 +12,7 @@
     "check": "tsc --noEmit",
     "dev": "tsx watch src/local-server.ts",
     "start": "node --env-file=.env dist/local-server.js",
-    "test:unit": "node -e \"require('node:fs').rmSync('dist-test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test dist-test/tests/policy.test.js dist-test/tests/oauth.test.js dist-test/tests/http.test.js",
+    "test:unit": "node -e \"require('node:fs').rmSync('dist-test',{recursive:true,force:true})\" && tsc -p tsconfig.test.json && node --test dist-test/tests/policy.test.js dist-test/tests/oauth.test.js dist-test/tests/http.test.js dist-test/tests/keychain.test.js",
     "test": "npm run check && npm run build && npm run test:unit",
     "audit:high": "npm audit --omit=dev --audit-level=high",
     "scan:secrets": "bash scripts/scan-secrets.sh"
