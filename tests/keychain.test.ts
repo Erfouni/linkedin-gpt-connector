@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { writeKeychainValue, type SecurityRunner } from "../src/keychain.js";
+import { runWithInput, writeKeychainValue, type SecurityRunner } from "../src/keychain.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -56,6 +56,27 @@ describe("writeKeychainValue", () => {
   });
 });
 
+describe("runWithInput", () => {
+  // A child that reads all of stdin before it exits, as security -i does.
+  const child = (body: string) => [
+    "-e",
+    `let s = ""; process.stdin.on("data", (d) => { s += d; }).on("end", () => { ${body} });`,
+  ];
+
+  it("delivers the input on stdin and resolves on a zero exit", async () => {
+    await runWithInput(process.execPath, child(`process.exit(s === "line one\\n" ? 0 : 1);`), "line one\n");
+  });
+
+  it("rejects with the exit status and stderr of a failed run", async () => {
+    await assert.rejects(
+      runWithInput(process.execPath, child(`console.error("no such item"); process.exit(45);`), "x\n"),
+      /exited with 45: no such item/,
+    );
+  });
+});
+
+// Always an existing keychain: for a path that does not exist, security writes
+// to the default keychain instead of failing.
 describe("writeKeychainValue with the real security tool", { skip: process.platform !== "darwin" && "needs macOS" }, () => {
   let dir: string;
   let keychain: string;
@@ -88,22 +109,7 @@ describe("writeKeychainValue with the real security tool", { skip: process.platf
 
   it("stores what the installer pipes into node dist/keychain.js", async () => {
     const script = fileURLToPath(new URL("../src/keychain.js", import.meta.url));
-    const child = spawn(process.execPath, [script, "svc", "installer", keychain], {
-      stdio: ["pipe", "ignore", "pipe"],
-    });
-    let stderr = "";
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
-    child.stdin.end(VALUE);
-    const code = await new Promise<number | null>((resolve) => child.on("close", resolve));
-    assert.equal(code, 0, stderr);
+    await runWithInput(process.execPath, [script, "svc", "installer", keychain], VALUE);
     assert.equal(await stored("installer"), VALUE);
-  });
-
-  it("rejects when security fails", async () => {
-    await assert.rejects(
-      writeKeychainValue("svc", "acct", "v", { keychain: join(dir, "missing.keychain-db") }),
-      /security exited/,
-    );
   });
 });

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export type SecurityRunner = (file: string, args: string[], input: string) => Promise<void>;
@@ -22,7 +23,7 @@ export async function writeKeychainValue(
   if (Buffer.byteLength(line) > MAX_LINE_BYTES) {
     throw new Error("Keychain value is too long");
   }
-  await (options.run ?? runSecurity)("/usr/bin/security", ["-i"], line);
+  await (options.run ?? runWithInput)("/usr/bin/security", ["-i"], line);
 }
 
 // The line parser of `security -i` (split_line in Apple's security.c) takes
@@ -35,7 +36,10 @@ export function quoteSecurityArg(arg: string): string {
   return `"${arg.replace(/["\\]/g, "\\$&")}"`;
 }
 
-function runSecurity(file: string, args: string[], input: string): Promise<void> {
+// Runs file with input on stdin; a non-zero exit rejects with its stderr.
+// `security -i` exits with the status of the last command, as it does when the
+// command is given as arguments.
+export function runWithInput(file: string, args: string[], input: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(file, args, { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
@@ -45,7 +49,7 @@ function runSecurity(file: string, args: string[], input: string): Promise<void>
     child.stdin.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`security exited with ${code}: ${stderr.trim()}`));
+      else reject(new Error(`${basename(file)} exited with ${code}: ${stderr.trim()}`));
     });
     child.stdin.end(input);
   });
