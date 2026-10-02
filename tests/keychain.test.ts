@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -54,6 +54,17 @@ describe("writeKeychainValue", () => {
     await assert.rejects(writeKeychainValue("svc", "acct", "x".repeat(4096), { run }), /too long/);
     assert.equal(calls.length, 0);
   });
+});
+
+describe("shipped macOS scripts", () => {
+  // They store secrets through dist/keychain.js. An argument to
+  // `security add-generic-password -w` is readable by every local user via `ps`.
+  for (const script of ["Authorize.command", "Install.command", "scripts/install-macos.sh"]) {
+    it(`${script} passes no secret to security as an argument`, async () => {
+      const text = await readFile(new URL(`../../${script}`, import.meta.url), "utf8");
+      assert.doesNotMatch(text, /add-generic-password[^\n]*\s-[wX]\b/);
+    });
+  }
 });
 
 describe("runWithInput", () => {

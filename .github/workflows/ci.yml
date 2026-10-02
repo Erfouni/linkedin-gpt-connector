@@ -18,5 +18,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run scan:secrets
+      - name: Shell syntax
+        run: |
+          for f in Authorize.command Install.command; do zsh -n "$f"; done
+          for f in scripts/*.sh; do bash -n "$f"; done
       - run: npm test
       - run: npm run audit:high
