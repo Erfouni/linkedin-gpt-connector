@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { request, type Server } from "node:http";
-import { after, afterEach, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it, mock } from "node:test";
 import { app, keychain } from "../src/local-server.js";
 
 let server: Server;
@@ -115,6 +115,111 @@ describe("DNS-rebinding boundary", () => {
       assert.equal(response.status, 400, host);
       assert.deepEqual(response.body, { error: "confirmed=true is required for write requests" }, host);
     }
+  });
+});
+
+describe("request validation compatibility", () => {
+  // Exercise the route schemas, not copies of them. Every non-loopback fetch is
+  // intercepted so accepted requests never use LinkedIn or real credentials.
+  async function withLinkedInStub(run: (calls: { path: string; init: RequestInit }[]) => Promise<void>) {
+    const calls: { path: string; init: RequestInit }[] = [];
+    const localFetch = globalThis.fetch;
+    process.env.LINKEDIN_ACCESS_TOKEN = "test-only-validation-token";
+    const stub = mock.method(globalThis, "fetch", async (input: string | URL | Request, init: RequestInit = {}) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+      if (url.origin === baseUrl) return localFetch(input, init);
+      assert.equal(url.origin, "https://api.linkedin.com");
+      calls.push({ path: url.pathname, init });
+      return new Response(JSON.stringify(url.pathname === "/v2/me" ? { id: "test-member" } : { ok: true }), {
+        headers: { "Content-Type": "application/json", "x-restli-id": "test-post" },
+      });
+    });
+    try { await run(calls); } finally {
+      stub.mock.restore();
+      delete process.env.LINKEDIN_ACCESS_TOKEN;
+    }
+  }
+
+  async function post(path: string, body: unknown) {
+    return fetch(`${baseUrl}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("rejects missing, wrong-type, and out-of-range write fields without contacting LinkedIn", async () => {
+    await withLinkedInStub(async (calls) => {
+      for (const [path, body, field] of [
+        ["/posts", {}, "commentary"],
+        ["/posts", { commentary: "", confirmed: true }, "commentary"],
+        ["/posts", { commentary: "x".repeat(3001), confirmed: true }, "commentary"],
+        ["/posts", { commentary: "text", confirmed: "true" }, "confirmed"],
+        ["/comments", { post_urn: "urn:li:share:test", message: 42, confirmed: true }, "message"],
+        ["/comments", { post_urn: "urn:li:share:test", message: "x".repeat(1251), confirmed: true }, "message"],
+        ["/comments", { post_urn: "", message: "text", confirmed: true }, "post_urn"],
+      ] as const) {
+        const response = await post(path, body);
+        assert.equal(response.status, 400);
+        const result = await response.json() as { error: string; details: { formErrors: string[]; fieldErrors: Record<string, string[]> } };
+        assert.equal(result.error, "Invalid request");
+        assert.deepEqual(result.details.formErrors, []);
+        assert.ok(result.details.fieldErrors[field]?.length, `${path}: ${field}`);
+      }
+      assert.equal(calls.length, 0);
+    });
+  });
+
+  it("accepts write limits and strips unknown fields from the upstream payload", async () => {
+    await withLinkedInStub(async (calls) => {
+      const commentary = "x".repeat(3000);
+      const postResponse = await post("/posts", { commentary, confirmed: true, extra: "discard" });
+      assert.equal(postResponse.status, 200);
+      assert.deepEqual(await postResponse.json(), { published: true, linkedin_post_id: "test-post", response: { ok: true } });
+      const postBody = JSON.parse(String(calls[1].init.body));
+      assert.equal(postBody.commentary, commentary);
+      assert.equal(postBody.author, "urn:li:person:test-member");
+      assert.equal("extra" in postBody, false);
+
+      const message = "x".repeat(1250);
+      const commentResponse = await post("/comments", { post_urn: "urn:li:share:test", message, confirmed: true });
+      assert.equal(commentResponse.status, 200);
+      assert.deepEqual(JSON.parse(String(calls[3].init.body)), { actor: "urn:li:person:test-member", message: { text: message } });
+    });
+  });
+
+  it("defaults a generic request to GET with no body or write confirmation", async () => {
+    await withLinkedInStub(async (calls) => {
+      const response = await post("/linkedin/request", { path: "/v2/userinfo", extra: "discard" });
+      assert.equal(response.status, 200);
+      const result = await response.json() as { data: unknown; response_headers: Record<string, string> };
+      assert.deepEqual(result.data, { ok: true });
+      assert.equal(result.response_headers["x-restli-id"], "test-post");
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].init.method, "GET");
+      assert.equal(calls[0].init.body, undefined);
+    });
+  });
+
+  it("rejects invalid methods, confirmation types, and non-object request bodies", async () => {
+    await withLinkedInStub(async (calls) => {
+      for (const body of [null, [], { method: "TRACE", path: "/v2/me" }, { path: "/v2/me", confirmed: "true" }]) {
+        const response = await post("/linkedin/request", body);
+        assert.equal(response.status, 400);
+      }
+      assert.equal(calls.length, 0);
+    });
+  });
+
+  it("rejects missing or repeated query strings and unsupported analytics metrics", async () => {
+    await withLinkedInStub(async (calls) => {
+      for (const path of ["/comments", "/comments?post_urn=a&post_urn=b", "/analytics/profile?metric=UNKNOWN", "/analytics/post?post_urn=test&metric=UNKNOWN", "/oauth/callback?code=&state=test"]) {
+        const response = await fetch(`${baseUrl}${path}`);
+        assert.equal(response.status, 400, path);
+        assert.equal((await response.json() as { error: string }).error, "Invalid request", path);
+      }
+      assert.equal(calls.length, 0);
+    });
   });
 });
 
