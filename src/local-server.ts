@@ -67,6 +67,12 @@ async function loadKeychainValue(account: string): Promise<string | null> {
   }
 }
 
+// The OAuth status route reads credentials through this object so a test can
+// stand in for the Keychain without touching the platform.
+export const keychain = {
+  read: loadKeychainValue,
+};
+
 async function saveKeychainValue(account: string, value: string): Promise<void> {
   if (process.platform !== "darwin") {
     throw new Error("OAuth token storage requires macOS Keychain");
@@ -213,11 +219,16 @@ app.get("/health", (_req, res) => {
 app.use(localOnly);
 
 app.get("/oauth/status", asyncRoute(async (_req, res) => {
-  const hasAccessToken = Boolean(await loadKeychainValue(config.keychainAccount));
-  const hasClientSecret = Boolean(await loadKeychainValue(config.clientSecretKeychainAccount));
+  const keychainAccessToken = Boolean(await keychain.read(config.keychainAccount));
+  const hasClientSecret = Boolean(await keychain.read(config.clientSecretKeychainAccount));
+  // loadAccessToken() prefers LINKEDIN_ACCESS_TOKEN, so the status must report
+  // that source too instead of only what the Keychain holds.
+  const environmentAccessToken = Boolean(process.env.LINKEDIN_ACCESS_TOKEN);
   res.json({
     configured: Boolean(config.clientId),
-    authorized: hasAccessToken,
+    authorized: environmentAccessToken || keychainAccessToken,
+    credential_source: environmentAccessToken ? "environment" : keychainAccessToken ? "keychain" : null,
+    access_token_in_keychain: keychainAccessToken,
     client_secret_in_keychain: hasClientSecret,
     redirect_uri: config.oauthRedirectUri,
     scopes: config.oauthScopes,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { request, type Server } from "node:http";
-import { after, before, describe, it, mock } from "node:test";
-import { app } from "../src/local-server.js";
+import { after, afterEach, before, describe, it, mock } from "node:test";
+import { app, keychain } from "../src/local-server.js";
 
 let server: Server;
 let baseUrl: string;
@@ -220,5 +220,56 @@ describe("request validation compatibility", () => {
       }
       assert.equal(calls.length, 0);
     });
+  });
+});
+
+describe("OAuth status describes the credential the client will use", () => {
+  const originalRead = keychain.read;
+  const originalToken = process.env.LINKEDIN_ACCESS_TOKEN;
+
+  afterEach(() => {
+    keychain.read = originalRead;
+    if (originalToken === undefined) delete process.env.LINKEDIN_ACCESS_TOKEN;
+    else process.env.LINKEDIN_ACCESS_TOKEN = originalToken;
+  });
+
+  async function status() {
+    const response = await fetch(`${baseUrl}/oauth/status`);
+    assert.equal(response.status, 200);
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  it("reports an environment token without exposing it", async () => {
+    process.env.LINKEDIN_ACCESS_TOKEN = "fixture-environment-token";
+    keychain.read = async () => null;
+
+    const body = await status();
+    assert.equal(body.authorized, true);
+    assert.equal(body.credential_source, "environment");
+    assert.equal(body.access_token_in_keychain, false);
+    assert.equal(JSON.stringify(body).includes("fixture-environment-token"), false);
+  });
+
+  it("reports a Keychain token when the environment has none", async () => {
+    delete process.env.LINKEDIN_ACCESS_TOKEN;
+    keychain.read = async (account: string) =>
+      account.includes("secret") ? null : "fixture-keychain-token";
+
+    const body = await status();
+    assert.equal(body.authorized, true);
+    assert.equal(body.credential_source, "keychain");
+    assert.equal(body.access_token_in_keychain, true);
+    assert.equal(body.client_secret_in_keychain, false);
+    assert.equal(JSON.stringify(body).includes("fixture-keychain-token"), false);
+  });
+
+  it("reports no credential when neither source has one", async () => {
+    delete process.env.LINKEDIN_ACCESS_TOKEN;
+    keychain.read = async () => null;
+
+    const body = await status();
+    assert.equal(body.authorized, false);
+    assert.equal(body.credential_source, null);
+    assert.equal(body.access_token_in_keychain, false);
   });
 });
